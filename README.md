@@ -1,187 +1,167 @@
-# Scufpad
+# Scufpad — personal fixes fork
 
-A Linux application that bridges a Scuf Envision Pro V2 controller to a virtual Xbox Elite 2 controller via the uinput
-subsystem.
+This repository is my fork of [Scufpad](https://github.com/ChaseDRedmon/Scufpad),
+originally created by **Chase Redmon**.
+I forked it to address issues I experienced while using my Scuf Envision Pro controller
+on Linux and to keep those fixes available for my own setup and anyone with similar issues.
+Credit for the original bridge, architecture, and controller mappings belongs to the
+original creator.
 
-## Overview
+## Why this fork exists
 
-The Scuf Envision Pro V2 controller (VID: `0x1b1c`, PID: `0x3a05`) uses highly non-standard evdev mappings that cause
-incorrect button/axis assignments in most Linux games. This bridge:
+The goal of this fork is to make the original bridge work better with the controller
+behavior I encountered. The current changes include:
 
-1. **Reads** input from the physical Scuf controller via evdev
-2. **Translates** the non-standard mappings to standard Xbox Elite 2 format
-3. **Outputs** to a virtual gamepad that games recognize correctly
+- **Additional device detection:** controller discovery and HID validation accept product
+  IDs `0x3a05` and `0x3a08` under Corsair/Scuf vendor ID `0x1b1c`.
+- **Stick magnitude limiting:** the input filter caps the combined X/Y stick magnitude at
+  `30000`, scaling both axes together when input exceeds that limit.
 
-The virtual controller appears to games as a standard Xbox Elite 2 controller (Microsoft VID: `0x045e`, PID: `0x0b12`).
+These changes reflect my setup and the issues I experienced. Recognizing an additional
+product ID does not guarantee that every controller variant uses the same input mappings.
+If your device behaves differently, verify its events before assuming compatibility.
+
+## What Scufpad does
+
+Scufpad is a Linux application that bridges a physical Scuf Envision Pro controller to a
+virtual Xbox Elite 2 controller through the kernel's `uinput` subsystem. The original
+project handles the controller's non-standard evdev button and axis assignments so games
+can receive standard Xbox-style input.
+
+The bridge:
+
+1. Reads events from the physical controller through evdev.
+2. Translates its buttons and axes to Xbox mappings.
+3. Applies stick and trigger deadzones and jitter filtering.
+4. Emits events through a virtual Xbox Elite 2 controller
+   (Microsoft VID `0x045e`, PID `0x0b12`).
+
+It also grabs the controller's evdev interfaces to reduce duplicate input from the
+physical device. Some games need additional SDL configuration, described below.
 
 ## Requirements
 
-- Linux with uinput support
-- .NET 10.0 or later
-- Scuf Envision Pro V2 controller (VID: `0x1b1c`, PID: `0x3a05`)
+- Linux with the `uinput` kernel module and access to input devices.
+- .NET 10 SDK to build or run from source.
+- A compatible Scuf Envision Pro controller connected to the Linux host.
+- For Native AOT publishing: the .NET native compilation prerequisites for your Linux
+  distribution, including a C/C++ compiler toolchain and zlib development files.
 
-## Quick Start
+Builds and the existing unit/integration suites can run without a connected controller.
+Live bridging requires the physical controller and `/dev/uinput`; a cloud container
+without device access cannot validate controller output.
+
+## Quick start
+
+Run these commands on the Linux machine connected to your controller.
+
+### 1. Configure device permissions
+
+Create udev rules for both product IDs recognized by this fork:
 
 ```bash
-# 1. Set up udev rules (one-time)
-sudo tee /etc/udev/rules.d/99-scuf.rules << 'EOF'
+sudo tee /etc/udev/rules.d/99-scuf.rules > /dev/null << 'EOF'
 SUBSYSTEM=="input", ATTRS{idVendor}=="1b1c", ATTRS{idProduct}=="3a05", MODE="0666"
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1b1c", ATTRS{idProduct}=="3a05", MODE="0666"
+SUBSYSTEM=="input", ATTRS{idVendor}=="1b1c", ATTRS{idProduct}=="3a08", MODE="0666"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1b1c", ATTRS{idProduct}=="3a08", MODE="0666"
 KERNEL=="uinput", MODE="0666"
 EOF
 
-# 2. Reload udev rules
-sudo udevadm control --reload-rules && sudo udevadm trigger
-
-# 3. Load uinput module
-sudo modprobe uinput
-
-# 4. Run the bridge
-dotnet run --project src/Scufpad
-```
-
-## Game-Specific Configuration
-
-### Steam Games (Important!)
-
-For the best experience with Steam games, you need to **disable Steam Input** and tell SDL to ignore the physical
-controller:
-
-#### 1. Disable Steam Input for the Game
-
-1. Right-click the game in Steam → **Properties**
-2. Go to **Controller** tab
-3. Set **Override for [Game]** to **Disable Steam Input**
-
-#### 2. Add Launch Options (SDL Games)
-
-For games using SDL (like Stardew Valley), add this to the Steam launch options:
-
-```
-SDL_GAMECONTROLLER_IGNORE_DEVICES=0x1b1c/0x3a05 %command%
-```
-
-This tells SDL to ignore the physical Scuf controller so only the virtual Xbox controller is used.
-
-**Example for Stardew Valley:**
-
-1. Right-click Stardew Valley → **Properties**
-2. In **Launch Options**, enter:
-   ```
-   SDL_GAMECONTROLLER_IGNORE_DEVICES=0x1b1c/0x3a05 %command%
-   ```
-3. In the **Controller** tab, disable Steam Input
-
-### Non-Steam Games
-
-The bridge grabs the physical controller exclusively, so most games will only see the virtual Xbox controller. However,
-some games may need the `SDL_GAMECONTROLLER_IGNORE_DEVICES` environment variable set before launching.
-
-## Setup Details
-
-### 1. Create udev rules
-
-Create `/etc/udev/rules.d/99-scuf.rules`:
-
-```bash
-sudo tee /etc/udev/rules.d/99-scuf.rules << 'EOF'
-SUBSYSTEM=="input", ATTRS{idVendor}=="1b1c", ATTRS{idProduct}=="3a05", MODE="0666"
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1b1c", ATTRS{idProduct}=="3a05", MODE="0666"
-KERNEL=="uinput", MODE="0666"
-EOF
-```
-
-### 2. Reload udev rules
-
-```bash
 sudo udevadm control --reload-rules
 sudo udevadm trigger
-```
-
-Then unplug and replug your controller.
-
-### 3. Load the uinput module
-
-```bash
 sudo modprobe uinput
 ```
 
-To load uinput automatically on boot:
+These rules grant all local users access to the matching devices. Use your distribution's
+group-based permissions if you need more restricted access. Unplug and reconnect the
+controller after applying the rules.
+
+To load `uinput` automatically on boot:
 
 ```bash
 echo 'uinput' | sudo tee /etc/modules-load.d/uinput.conf
 ```
 
-### 4. Verify setup
+### 2. Run the bridge
+
+From the repository root:
 
 ```bash
-# Check controller is detected
-lsusb | grep 1b1c:3a05
-
-# Check device permissions
-ls -la /dev/input/by-id/*Envision*
-ls -la /dev/uinput
+dotnet run --project src/Scufpad/scufpad.csproj
 ```
 
-## Usage
+When the controller is detected and the virtual device is created, the bridge prints
+`Bridge service started. Press Ctrl+C to exit.` Keep it running while playing.
+
+## Steam and SDL games
+
+For Steam games, disable Steam Input for the game:
+
+1. Right-click the game and open **Properties**.
+2. Open **Controller**.
+3. Set the override to **Disable Steam Input**.
+
+For games using SDL, add this launch option so SDL ignores both physical device IDs
+recognized by this fork:
+
+```text
+SDL_GAMECONTROLLER_IGNORE_DEVICES=0x1b1c/0x3a05,0x1b1c/0x3a08 %command%
+```
+
+For a non-Steam SDL game, set the same environment variable when launching the game.
+Start the bridge first, then check that the game receives input from the virtual controller.
+
+## Building and testing
+
+Use the solution file explicitly from the repository root:
 
 ```bash
-# Run from source
-dotnet run --project src/Scufpad
-
-# Or build and run
-dotnet build
-./src/Scufpad/bin/Debug/net10.0/Scufpad
-
-# AOT publish (single binary)
-dotnet publish -c Release -r linux-x64
+dotnet restore scufpad.slnx
+dotnet build scufpad.slnx --no-restore
+dotnet build scufpad.slnx -c Release --no-restore
+dotnet test scufpad.slnx
 ```
+
+Run individual test projects:
+
+```bash
+dotnet test tests/scufpad.Tests.Unit/scufpad.Tests.Unit.csproj
+dotnet test tests/scufpad.Tests.Integration/scufpad.Tests.Integration.csproj
+```
+
+The integration suite exercises mapping/filter behavior and interop structures. It does
+not replace testing a physical controller and virtual gamepad on a Linux host.
+
+Publish a standalone Native AOT binary for Linux x64:
+
+```bash
+dotnet publish src/Scufpad/scufpad.csproj -c Release -r linux-x64 -o publish/
+./publish/Scufpad
+```
+
+The published binary does not require an installed .NET runtime, but still needs controller
+access and `uinput` on the host.
 
 ## Architecture
 
-### Data Flow Pipeline
-
-```
-Physical Scuf Controller
+```text
+Physical Scuf controller
         ↓
-EvdevReader (reads evdev events)
+EvdevReader → InputPoller (4 ms polling timeout)
         ↓
-InputPoller (multiplexes with poll(2), 4ms timeout ≈ 250Hz)
+EnvisionMapping
         ↓
-EnvisionMapping (translates Scuf's non-standard mappings)
+InputFilter (deadzone, jitter filtering, stick magnitude limit)
         ↓
-InputFilter (applies deadzone and jitter filtering)
+VirtualGamepad via uinput
         ↓
-VirtualGamepad (emits to virtual Xbox Elite 2 via uinput)
-        ↓
-Games see standard Xbox controller
+Games receive Xbox controller input
 ```
 
-### Project Structure
-
-```
-src/Scufpad/
-├── Discovery/           # Device discovery via /sys/class
-│   └── DeviceDiscovery.cs
-├── Input/               # Input device readers
-│   ├── EvdevReader.cs   # Reads evdev input events
-│   ├── HidrawReader.cs  # Reads raw HID reports (optional)
-│   └── InputPoller.cs   # Multiplexes input with poll(2)
-├── Interop/             # P/Invoke bindings
-│   ├── Hidraw.cs        # hidraw ioctl constants
-│   ├── Libc.cs          # libc functions (open, read, ioctl, poll)
-│   ├── LinuxInput.cs    # input_event struct, button/axis codes
-│   └── Uinput.cs        # uinput ioctl constants
-├── Mapping/             # Input translation and filtering
-│   ├── EnvisionMapping.cs  # Scuf V2 → Xbox mapping
-│   ├── InputFilter.cs      # Deadzone and jitter filtering
-│   └── InputState.cs       # Controller state representation
-├── Output/              # Virtual device creation
-│   └── VirtualGamepad.cs   # Creates Xbox Elite 2 via uinput
-├── Services/            # Main service orchestration
-│   └── BridgeService.cs    # Main loop coordination
-└── Program.cs           # Entry point
-```
+The implementation lives under `src/Scufpad/`, with directories for discovery, input,
+interop, mapping, output, and bridge services. On V2 hardware, both triggers are read
+through evdev; hidraw processing is not used by the main bridge loop.
 
 ## Hardware Mapping Reference
 
@@ -227,124 +207,62 @@ The V2 uses highly non-standard button codes:
 
 **Note:** The V2 only has 3 paddle buttons, not 4.
 
-## Performance Tuning
+## Input filter defaults
 
-The bridge is optimized for low-latency input:
+| Setting | Value |
+|---------|-------|
+| Poll timeout | 4 ms |
+| Stick deadzone | 3500 |
+| Trigger deadzone | 10 |
+| Stick jitter threshold | 300 |
+| Trigger jitter threshold | 20 |
+| Maximum combined stick magnitude in this fork | 30000 |
 
-| Setting                  | Value         | Purpose                                       |
-|--------------------------|---------------|-----------------------------------------------|
-| Poll timeout             | 4ms           | ~250Hz polling for sub-frame latency at 60fps |
-| Stick deadzone           | 3500 (~10.7%) | Eliminates stick drift                        |
-| Trigger deadzone         | 10 (~1%)      | Minimal deadzone for responsiveness           |
-| Stick jitter threshold   | 300           | Filters analog noise                          |
-| Trigger jitter threshold | 20 (~2%)      | Low threshold for responsive triggers         |
-
-These defaults can be adjusted in `InputFilter.cs` if needed.
+The deadzone and jitter thresholds are defined in `src/Scufpad/Mapping/InputFilter.cs`.
 
 ## Troubleshooting
 
-### "Permission denied" errors
+### Controller is not detected
+
+Check whether the host sees the controller and exposes its input devices:
 
 ```bash
-# Verify udev rules
-cat /etc/udev/rules.d/99-scuf.rules
-
-# Reload rules
-sudo udevadm control --reload-rules && sudo udevadm trigger
-
-# Unplug and replug controller
-# Check permissions
-ls -la /dev/hidraw* /dev/uinput /dev/input/event*
+lsusb
+ls -la /dev/input/event*
 ```
 
-### "uinput device not found"
+Look for vendor ID `1b1c` and product ID `3a05` or `3a08`. Confirm the controller is
+connected, then unplug/reconnect it after installing the udev rules.
+
+### Permission denied or virtual gamepad creation fails
 
 ```bash
-# Load the module
+ls -la /dev/uinput /dev/input/event*
 sudo modprobe uinput
-
-# Verify it's loaded
-lsmod | grep uinput
+sudo udevadm control --reload-rules
+sudo udevadm trigger
 ```
 
-### Controller not detected
+Check that `/etc/udev/rules.d/99-scuf.rules` includes your controller's product ID.
+Containers also need the host to expose the devices; installing udev rules inside a
+container alone will not provide that access.
 
-```bash
-# Check USB connection
-lsusb | grep 1b1c
+### Double input or incorrect game behavior
 
-# View kernel messages
-dmesg | tail -20
+Start the bridge before the game, disable Steam Input, and set the SDL ignore-device
+launch option where applicable. Use `evtest` on the virtual Xbox controller to inspect
+its output and distinguish bridge behavior from game-specific configuration.
 
-# Ensure you have the V2 controller (PID 3a05)
-```
+When reporting an issue with this fork, include the controller's USB IDs, connection
+mode, Linux distribution, game, and the observed input behavior.
 
-### Game sees both controllers / double input
+## Credits and license
 
-Make sure:
+**Original creator:** [Chase Redmon](https://github.com/ChaseDRedmon), creator of
+[the upstream Scufpad project](https://github.com/ChaseDRedmon/Scufpad). This fork retains
+the original MIT license and copyright notice.
 
-1. The bridge is running before starting the game
-2. Steam Input is disabled for the game
-3. `SDL_GAMECONTROLLER_IGNORE_DEVICES=0x1b1c/0x3a05` is set (for SDL games)
+**Fork maintainer:** [Athae1218](https://github.com/Athae1218/Scufpad).
+The changes here are intended to address issues I experienced with my own setup.
 
-### Trigger feels laggy or unresponsive
-
-This was fixed in recent updates. If you experience trigger latency:
-
-1. Ensure you're running the latest version
-2. The poll timeout should be 4ms (not 100ms)
-3. The trigger jitter threshold should be 20 (not 75)
-
-## Building
-
-```bash
-# Debug build
-dotnet build
-
-# Release build
-dotnet build -c Release
-
-# Run tests
-dotnet test
-
-# AOT publish (single binary, no .NET runtime required)
-dotnet publish -c Release -r linux-x64
-```
-
-## Testing
-
-```bash
-# Run all tests
-dotnet test
-
-# Run specific test project
-dotnet test tests/scufpad.Tests.Unit
-dotnet test tests/scufpad.Tests.Integration
-
-# Test with evtest
-evtest  # Select the virtual Xbox controller to verify output
-```
-
-## Technical Notes
-
-### Why evdev grab is necessary
-
-The bridge grabs the physical controller exclusively using `EVIOCGRAB` to:
-
-1. Prevent games from seeing the raw Scuf input with wrong mappings
-2. Prevent double-input (one from physical, one from virtual)
-
-### Why hidraw is optional on V2
-
-V1 hardware reportedly didn't expose the right trigger via evdev, requiring hidraw fallback. V2 hardware provides both
-triggers via evdev (`ABS_RX` for LT, `ABS_RY` for RT), so hidraw is no longer needed. Hidraw processing is disabled to
-avoid latency issues from stale data.
-
-### Multiple evdev devices
-
-The Scuf controller exposes multiple input devices (joystick, mouse emulation, etc.). All are grabbed exclusively to
-prevent input leakage.
-
-## License
-
-MIT
+See [LICENSE](LICENSE) for the full MIT license.
