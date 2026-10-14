@@ -125,7 +125,7 @@ internal static class EnvisionMapping
                 state.LeftStickX = value;
                 state.MarkDirty();
                 break;
-
+                
             case AbsCodes.ABS_Y:
                 state.LeftStickY = value;
                 state.MarkDirty();

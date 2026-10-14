@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Globalization;
 
 namespace Scufpad.Discovery;
@@ -45,7 +46,7 @@ internal static class DeviceDiscovery
     /// <summary>
     ///     Scuf Envision Pro V2 USB Product ID.
     /// </summary>
-    private const ushort ScufProductId = 0x3a05;
+    private static readonly ushort[] ScufProductIds = [0x3a05, 0x3a08];
 
     /// <summary>
     ///     Searches for connected Scuf Envision Pro V2 controller devices.
@@ -65,7 +66,7 @@ internal static class DeviceDiscovery
         {
             Console.Error.WriteLine($"""
                                      Error: Could not find Scuf Envision Pro controller evdev device.
-                                     Looking for VID={ScufVendorId:x4} PID={ScufProductId:x4}
+                                     Looking for VID={ScufVendorId:x4} PID={string.Join(" or ", ScufProductIds.Select(p => p.ToString("x4")))}
                                      """);
             return null;
         }
@@ -128,7 +129,7 @@ internal static class DeviceDiscovery
                 if (ushort.TryParse(vendorStr, NumberStyles.HexNumber, null, out var vendor) &&
                     ushort.TryParse(productStr, NumberStyles.HexNumber, null, out var product))
                 {
-                    if (vendor == ScufVendorId && product == ScufProductId)
+                    if (vendor == ScufVendorId && ScufProductIds.Contains((ushort)product))
                     {
                         var eventName = Path.GetFileName(eventDir);
                         var devPath = $"/dev/input/{eventName}";
@@ -265,7 +266,7 @@ internal static class DeviceDiscovery
                     if (uint.TryParse(parts[1], NumberStyles.HexNumber, null, out var vendor) &&
                         uint.TryParse(parts[2], NumberStyles.HexNumber, null, out var product))
                     {
-                        if (vendor == ScufVendorId && product == ScufProductId)
+                        if (vendor == ScufVendorId && ScufProductIds.Contains((ushort)product))
                         {
                             var hidrawName = Path.GetFileName(hidrawDir);
                             return $"/dev/{hidrawName}";

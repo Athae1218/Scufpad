@@ -140,7 +140,17 @@ internal sealed class InputFilter
     private void FilterStickRadial(int x, int y, ref int prevX, ref int prevY, out int outX, out int outY)
     {
         var magnitude = Math.Sqrt((double)x * x + (double)y * y);
-
+        
+        const double maxMagnitude = 30000.0;
+        
+        if (magnitude > maxMagnitude)
+        {
+            double scale = maxMagnitude / magnitude;
+            
+            x = (int)Math.Round(x * scale);
+            y = (int)Math.Round(y * scale);
+        }
+        
         if (magnitude < _stickDeadzone)
         {
             prevX = 0;
